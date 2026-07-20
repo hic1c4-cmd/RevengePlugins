@@ -1,23 +1,57 @@
-// Original source: https://github.com/Fierdetta/text-replace
-import { storage } from '@vendetta/plugin'
-import patchMessageLongPressActionSheet from './patches/MessageLongPressActionSheet'
-import patchSendMessage from './patches/sendMessage'
-import Settings from './ui/pages/Settings'
+import { findByProps } from "@revenge-mod/metro"
+import { logger } from "@vendetta"
+import { before } from "@vendetta/patcher"
+import { storage } from "@vendetta/plugin"
+import { getAssetIDByName } from "@vendetta/ui/assets"
+import { showToast } from "@vendetta/ui/toasts"
 
-let patches: (() => void)[] = []
+import type { Rule } from "../def"
 
-export default {
-    onLoad: () => {
-        storage.rules ??= []
+const Messages = findByProps("sendMessage", "receiveMessage")
 
-        patches.push(patchSendMessage())
-        patches.push(patchMessageLongPressActionSheet())
-    },
-    onUnload: () => {
-        for (const unpatch of patches) {
-            unpatch()
+const Warning = getAssetIDByName("ic_warning_24px")
+
+export default function patchSendMessage() {
+    return before("sendMessage", Messages, args => {
+        // Rules, but filtering out ones with empty match arguments
+        const rules = (storage.rules as Rule[]).filter(rule => rule.match)
+
+        // The message content
+        let content = args[1].content as string
+
+        // Go through each rule and run the message through it
+        for (const rule of rules) {
+            if (rule.regex) {
+                try {
+                    const match = rule.match.trim()
+
+                    // EVAL mode
+                    if (match.startsWith("EVAL ")) {
+                        const code = match.slice(5).trim()
+
+                        const result = new Function(
+                            "mystring",
+                            `return (${code})`
+                        )(content)
+
+                        content = String(result)
+                        continue
+                    }
+
+                    // Normal RegExp mode
+                    const pattern = new RegExp(rule.match, rule.flags)
+                    content = content.replace(pattern, rule.replace)
+                } catch (e) {
+                    logger.error(e)
+                    showToast(`Failed to process rule "${rule.name}"!`, Warning)
+                }
+            } else {
+                // Normal string replacement
+                content = content.replaceAll(rule.match, rule.replace)
+            }
         }
-        patches = []
-    },
-    settings: Settings,
+
+        // Update message content with the updated content
+        args[1].content = content
+    })
 }
