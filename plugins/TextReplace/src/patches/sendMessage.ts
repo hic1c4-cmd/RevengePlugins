@@ -30,9 +30,9 @@ export default function patchSendMessage() {
                         const code = match.slice(5).trim()
 
                         const result = new Function(
-                            "msg",
+                            "args",
                             `return (${code})`
-                        )(args[1])
+                        )(args)
 
                         content = String(result)
                         continue
